@@ -8,6 +8,23 @@
 //	TODO: add code to create and manage the buffer
 //
 
+
+// Basic struct for request
+typedef struct request {
+  int fd;
+  char *filename;
+  int filesize;
+} request_t;
+
+// Struct for request buffer
+typedef struct request_buffer {
+  request_t *requests;
+  int size;
+  int capacity;
+  pthread_mutex_t lock; // Lock to ensure mutual exclusion of buffer access 
+  pthread_cond_t not_empty; // Condition variable to wait for requests
+} request_buffer_t;
+
 //
 // Sends out HTTP response in case of errors
 //
