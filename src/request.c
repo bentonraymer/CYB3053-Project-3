@@ -25,6 +25,28 @@ typedef struct request_buffer {
   pthread_cond_t not_empty; // Condition variable to wait for requests
 } request_buffer_t;
 
+// Function to initialize the request buffer
+void init_request_buffer(request_buffer_t *buffer, int capacity) {
+  buffer->requests = malloc(sizeof(request_t) * capacity);
+  buffer->size = 0;
+  buffer->capacity = capacity;
+  pthread_mutex_init(&buffer->lock, NULL);
+  pthread_cond_init(&buffer->not_empty, NULL); 
+}
+
+// Function to add item to the request buffer
+void add_to_buffer(request_buffer_t *buffer, request_t request) {
+  pthread_mutex_lock(&buffer->lock); // Lock the buffer for mutual exclusion
+  if (buffer->size >= buffer->capacity ) { // Check to see if buffer is full
+    pthread_mutex_unlock(&buffer->lock) // Unlock
+    return -1 // TODO: Determine whether we just kill it or keep waiting until buffer has room... unsure...
+  }
+  buffer->requests[buffer->size++] = *req; // Add request to the buffer
+  pthread_cond_signal(&buffer->not_empty); // Indicate there's a request to be processed
+  pthread_mutex_unlock(&buffer->lock); // Unlock
+  return 0;
+}
+
 //
 // Sends out HTTP response in case of errors
 //
