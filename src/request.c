@@ -5,7 +5,7 @@
 
 
 //
-//	TODO: add code to create and manage the buffer
+//	DONE: add code to create and manage the buffer
 //
 
 
@@ -183,8 +183,19 @@ void request_serve_static(int fd, char *filename, int filesize) {
 //
 void* thread_request_serve_static(void* arg)
 {
-	// TODO: write code to actualy respond to HTTP requests
+	// DONE: write code to actualy respond to HTTP requests
+
+  // 'scheduling_algo' is passed in from request.h - 0 - FIFO, 1 - SFF, 2 - RANDOM
+  // Send the buffer through to the correct scheduling algorithm
+  if(scheduling_algo == 0) {
+    process_fifo(&buffer);
+  } else if (scheduling_algo == 1) {
+    process_sff(&buffer);
+  } else if (scheduling_algo == 2) {
+    process_random(&buffer)
+  }
 }
+
 
 //
 // Initial handling of the request
@@ -237,7 +248,7 @@ void request_handle(int fd) {
 
 
 //
-// Code to process requests in the buffer based on the three scheduling policies
+// Code to process requests in the buffer based on the three scheduling policies. Decided to break out into separate functions to make things cleaner.
 //
 
     // FIFO (First In, First Out) - Process requests in the order that they come in
