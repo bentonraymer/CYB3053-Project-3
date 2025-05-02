@@ -225,7 +225,61 @@ void request_handle(int fd) {
 		
 		// TODO: write code to add HTTP requests in the buffer based on the scheduling policy
 
+
+
+
     } else {
 		request_error(fd, filename, "501", "Not Implemented", "server does not serve dynamic content request");
     }
 }
+
+
+
+//
+// Code to process requests in the buffer based on the three scheduling policies
+//
+
+    // FIFO (First In, First Out) - Process requests in the order that they come in
+    void process_fifo(request_buffer_t *buffer) {
+      request_t req;
+      while (buffer->size > 0) {
+          remove_from_buffer(buffer, &req); // Grab the first request from the buffer and dequeue it
+          request_serve_static(req.fd, req.filename, req.filesize); // Handle request
+      }
+  }
+
+  // SFF/SJF - Shortest File First / Shortest Job First
+  void process_sff(request_buffer_t *buffer) {
+      request_t req;
+      while (buffer->size > 0 { // Loop until buffer is empty
+          int min_found = 0; // Make a variable to set to the smallest found request
+          for (int i = 1; i < buffer->size, i++) { // Loop through all items in the buffer
+            if (buffer->requests[i].filesize < buffer->requests[min_found].filesize) // See if looped-through request is smaller than currently saved one
+              min_found = i; // Set the smallest found request to the current one
+          }
+      }
+      req = buffer->requests[min_found]; // Grab the request that was the smallest
+      for (int i = min_found; i < buffer->size - 1; i++) { 
+        buffer->requests[i] = buffer->requests[i + 1] // Shift all other requests
+      }
+      buffer->size--; // Shrink buffer
+      request_serve_static(req.fd, req.filename, req.filesize); // Handle request
+      
+    )
+  }
+
+  // Random - Process requests / files in a random order
+  void process_random(request_buffer_t *buffer) {
+    request_t req;
+    while (buffer->size > 0) { // Loop until buffer is empty
+      int random_request = rand() % buffer_size; // Grab the index of a random request
+      
+    req = buffer->requests[random_request]; // Grab the request
+    for (int i = random_index; i < buffer->size - 1; i++) {
+      buffer->requests[i] = buffer->requests[i + 1]; // Shift all other requests
+    }
+    buffer->size--; // Shrink buffer
+
+    request_serve_static(req.fd, req.filename, req.filesize); // Handle request
+  }
+  }
