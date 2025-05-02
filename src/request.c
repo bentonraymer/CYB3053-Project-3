@@ -223,9 +223,10 @@ void request_handle(int fd) {
 			return;
 		}
 		
-		// TODO: write code to add HTTP requests in the buffer based on the scheduling policy
+		// DONE: write code to add HTTP requests in the buffer based on the scheduling policy
 
-
+    request_t req = {fd, filename, sbuf.st_size}; // Create the request
+    add_to_buffer(&buffer, &req); // Add the request to the buffer
 
 
     } else {
