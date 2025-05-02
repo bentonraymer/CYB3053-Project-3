@@ -35,7 +35,7 @@ void init_request_buffer(request_buffer_t *buffer, int capacity) {
 }
 
 // Function to add item to the request buffer
-void add_to_buffer(request_buffer_t *buffer, request_t request) {
+int add_to_buffer(request_buffer_t *buffer, request_t request) {
   pthread_mutex_lock(&buffer->lock); // Lock the buffer for mutual exclusion
   if (buffer->size >= buffer->capacity ) { // Check to see if buffer is full
     pthread_mutex_unlock(&buffer->lock) // Unlock
@@ -43,6 +43,16 @@ void add_to_buffer(request_buffer_t *buffer, request_t request) {
   }
   buffer->requests[buffer->size++] = *req; // Add request to the buffer
   pthread_cond_signal(&buffer->not_empty); // Indicate there's a request to be processed
+  pthread_mutex_unlock(&buffer->lock); // Unlock
+  return 0;
+}
+
+int remove_from_buffer(request_buffer_t *buffer, request_t *request) {
+  pthread_mutex_lock(&buffer->lock); // Lock the buffer
+  while (buffer->size == 0) {
+    pthread_cond_wait(&buffer->not_empty, &buffer->lock); // Wait for requests
+  }
+  *req = buffer->requests[--buffer->size] // Remove request from the buffer
   pthread_mutex_unlock(&buffer->lock); // Unlock
   return 0;
 }
