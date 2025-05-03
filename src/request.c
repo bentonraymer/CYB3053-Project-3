@@ -60,6 +60,7 @@ int add_to_buffer(request_buffer_t *buffer, request_t request) {
   buffer->size++;
   pthread_cond_signal(&buffer->not_empty); // Indicate there's a request to be processed
   pthread_mutex_unlock(&buffer->lock); // Unlock
+  printf("DEBUG: Request added to buffer\n");
   return 0;
 }
 
@@ -207,7 +208,6 @@ void request_serve_static(int fd, char *filename, int filesize) {
 // Fetches the requests from the buffer and handles them (thread logic)
 //
 void* thread_request_serve_static(void* arg) {
-  pthread_detach(pthread_self());
 
   printf("DEBUG: Starting to serve requests\n");
 
@@ -224,6 +224,7 @@ void* thread_request_serve_static(void* arg) {
       // FIFO (FIRST IN, FIRST OUT)
       if (scheduling_algo == 0) {
           printf("DEBUG: FIFO Processing Begins\n");
+          printf("DEBUG: Current Buffer Size: %d\n", buffer.size);
           req = buffer.requests[buffer.head];
           buffer.head = (buffer.head + 1) % buffer.capacity;
           buffer.size--;
@@ -234,6 +235,7 @@ void* thread_request_serve_static(void* arg) {
       // SFF (SHORTEST FILE FIRST)
       } else if (scheduling_algo == 1) {
             printf("DEBUG: SJF Processing Begins\n");
+            printf("DEBUG: Current Buffer Size: %d\n", buffer.size);
           if (buffer.size > 0) {
               int shortest_index = 0;
               for (int i = 1; i < buffer.size; i++) {
