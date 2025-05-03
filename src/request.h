@@ -11,3 +11,4 @@ extern int num_threads;
 
 void request_handle(int fd);
 void* thread_request_serve_static(void* arg);
+void init_request_buffer(int capacity);

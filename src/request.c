@@ -3,6 +3,11 @@
 
 #define MAXBUF (8192)
 
+// below default values are defined in 'request.h'
+int num_threads = DEFAULT_THREADS;
+int scheduling_algo = DEFAULT_SCHED_ALGO;	
+
+
 
 //
 //	DONE: add code to create and manage the buffer
@@ -26,22 +31,24 @@ typedef struct request_buffer {
 } request_buffer_t;
 
 // Function to initialize the request buffer
-void init_request_buffer(request_buffer_t *buffer, int capacity) {
-  buffer->requests = malloc(sizeof(request_t) * capacity);
-  buffer->size = 0;
-  buffer->capacity = capacity;
-  pthread_mutex_init(&buffer->lock, NULL);
-  pthread_cond_init(&buffer->not_empty, NULL); 
+request_buffer_t buffer;
+void init_request_buffer(int capacity) {
+  printf("DEBUG: Initializing buffer with capacity: %d\n", capacity);
+  buffer.requests = malloc(sizeof(request_t) * capacity);
+  buffer.size = 0;
+  buffer.capacity = capacity;
+  pthread_mutex_init(&buffer.lock, NULL);
+  pthread_cond_init(&buffer.not_empty, NULL); 
 }
 
 // Function to add item to the request buffer
 int add_to_buffer(request_buffer_t *buffer, request_t request) {
   pthread_mutex_lock(&buffer->lock); // Lock the buffer for mutual exclusion
   if (buffer->size >= buffer->capacity ) { // Check to see if buffer is full
-    pthread_mutex_unlock(&buffer->lock) // Unlock
-    return -1 // TODO: Determine whether we just kill it or keep waiting until buffer has room... unsure...
+    pthread_mutex_unlock(&buffer->lock); // Unlock
+    return -1; // TODO: Determine whether we just kill it or keep waiting until buffer has room... unsure...
   }
-  buffer->requests[buffer->size++] = *req; // Add request to the buffer
+  buffer->requests[buffer->size++] = request; // Add request to the buffer
   pthread_cond_signal(&buffer->not_empty); // Indicate there's a request to be processed
   pthread_mutex_unlock(&buffer->lock); // Unlock
   return 0;
@@ -52,7 +59,7 @@ int remove_from_buffer(request_buffer_t *buffer, request_t *request) {
   while (buffer->size == 0) {
     pthread_cond_wait(&buffer->not_empty, &buffer->lock); // Wait for requests
   }
-  *req = buffer->requests[--buffer->size] // Remove request from the buffer
+  *request = buffer->requests[--buffer->size]; // Remove request from the buffer
   pthread_mutex_unlock(&buffer->lock); // Unlock
   return 0;
 }
@@ -179,20 +186,68 @@ void request_serve_static(int fd, char *filename, int filesize) {
 }
 
 //
+// Code to process requests in the buffer based on the three scheduling policies. Decided to break out into separate functions to make things cleaner.
+//
+
+// FIFO (First In, First Out) - Process requests in the order that they come in
+void process_fifo(request_buffer_t *buffer) {
+  request_t req;
+  while (buffer->size > 0) {
+      remove_from_buffer(buffer, &req); // Grab the first request from the buffer and dequeue it
+      request_serve_static(req.fd, req.filename, req.filesize); // Handle request
+  }
+}
+
+// SFF/SJF - Shortest File First / Shortest Job First
+void process_sff(request_buffer_t *buffer) {
+  request_t req;
+  while (buffer->size > 0) { // Loop until buffer is empty
+      int min_found = 0; // Make a variable to set to the smallest found request
+      for (int i = 1; i < buffer->size; i++) { // Loop through all items in the buffer
+        if (buffer->requests[i].filesize < buffer->requests[min_found].filesize) // See if looped-through request is smaller than currently saved one
+          min_found = i; // Set the smallest found request to the current one
+      }
+  
+  req = buffer->requests[min_found]; // Grab the request that was the smallest
+  for (int i = min_found; i < buffer->size - 1; i++) { 
+    buffer->requests[i] = buffer->requests[i + 1]; // Shift all other requests
+  }
+  buffer->size--; // Shrink buffer
+  request_serve_static(req.fd, req.filename, req.filesize); // Handle request
+}
+}
+
+  // Random - Process requests / files in a random order
+void process_random(request_buffer_t *buffer) {
+  request_t req;
+  while (buffer->size > 0) { // Loop until buffer is empty
+    int random_num = rand() % buffer->size; // Grab the index of a random request
+    
+  req = buffer->requests[random_num]; // Grab the request
+  for (int i = random_num; i < buffer->size - 1; i++) {
+    buffer->requests[i] = buffer->requests[i + 1]; // Shift all other requests
+  }
+  buffer->size--; // Shrink buffer
+
+  request_serve_static(req.fd, req.filename, req.filesize); // Handle request
+  }
+}
+
+//
 // Fetches the requests from the buffer and handles them (thread logic)
 //
-void* thread_request_serve_static(void* arg)
-{
+void* thread_request_serve_static(void* arg) {
 	// DONE: write code to actualy respond to HTTP requests
 
   // 'scheduling_algo' is passed in from request.h - 0 - FIFO, 1 - SFF, 2 - RANDOM
   // Send the buffer through to the correct scheduling algorithm
+
   if(scheduling_algo == 0) {
     process_fifo(&buffer);
   } else if (scheduling_algo == 1) {
     process_sff(&buffer);
   } else if (scheduling_algo == 2) {
-    process_random(&buffer)
+    process_random(&buffer);
   }
 }
 
@@ -236,8 +291,9 @@ void request_handle(int fd) {
 		
 		// DONE: write code to add HTTP requests in the buffer based on the scheduling policy
 
+
     request_t req = {fd, filename, sbuf.st_size}; // Create the request
-    add_to_buffer(&buffer, &req); // Add the request to the buffer
+    add_to_buffer(&buffer, req); // Add the request to the buffer
 
 
     } else {
@@ -247,51 +303,3 @@ void request_handle(int fd) {
 
 
 
-//
-// Code to process requests in the buffer based on the three scheduling policies. Decided to break out into separate functions to make things cleaner.
-//
-
-    // FIFO (First In, First Out) - Process requests in the order that they come in
-    void process_fifo(request_buffer_t *buffer) {
-      request_t req;
-      while (buffer->size > 0) {
-          remove_from_buffer(buffer, &req); // Grab the first request from the buffer and dequeue it
-          request_serve_static(req.fd, req.filename, req.filesize); // Handle request
-      }
-  }
-
-  // SFF/SJF - Shortest File First / Shortest Job First
-  void process_sff(request_buffer_t *buffer) {
-      request_t req;
-      while (buffer->size > 0 { // Loop until buffer is empty
-          int min_found = 0; // Make a variable to set to the smallest found request
-          for (int i = 1; i < buffer->size, i++) { // Loop through all items in the buffer
-            if (buffer->requests[i].filesize < buffer->requests[min_found].filesize) // See if looped-through request is smaller than currently saved one
-              min_found = i; // Set the smallest found request to the current one
-          }
-      }
-      req = buffer->requests[min_found]; // Grab the request that was the smallest
-      for (int i = min_found; i < buffer->size - 1; i++) { 
-        buffer->requests[i] = buffer->requests[i + 1] // Shift all other requests
-      }
-      buffer->size--; // Shrink buffer
-      request_serve_static(req.fd, req.filename, req.filesize); // Handle request
-      
-    )
-  }
-
-  // Random - Process requests / files in a random order
-  void process_random(request_buffer_t *buffer) {
-    request_t req;
-    while (buffer->size > 0) { // Loop until buffer is empty
-      int random_request = rand() % buffer_size; // Grab the index of a random request
-      
-    req = buffer->requests[random_request]; // Grab the request
-    for (int i = random_index; i < buffer->size - 1; i++) {
-      buffer->requests[i] = buffer->requests[i + 1]; // Shift all other requests
-    }
-    buffer->size--; // Shrink buffer
-
-    request_serve_static(req.fd, req.filename, req.filesize); // Handle request
-  }
-  }
