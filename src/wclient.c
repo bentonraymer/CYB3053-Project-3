@@ -23,8 +23,10 @@ void client_send(int fd, char *filename) {
     gethostname_or_die(hostname, MAXBUF);
     
     /* Form and send the HTTP request */
-    sprintf(buf, "GET %s HTTP/1.1\n", filename);
-    sprintf(buf, "%shost: %s\n\r\n", buf, hostname);
+    // I see what was supposed to be going on here before with making half of it and appending it to itself, but that keeps not working for me for some reason
+    sprintf(buf, "GET %s HTTP/1.1\r\nHost: %s\r\n\r\n", filename, hostname);
+    // sprintf(buf, "GET %s HTTP/1.1\n", filename);
+    // sprintf(buf, "%shost: %s\n\r\n", buf, hostname);
     write_or_die(fd, buf, strlen(buf));
 }
 

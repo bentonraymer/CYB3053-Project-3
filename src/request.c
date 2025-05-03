@@ -24,31 +24,40 @@ typedef struct request {
 // Struct for request buffer
 typedef struct request_buffer {
   request_t *requests;
+  int head; // Next item to be removed
+  int tail; // Next item to be added
   int size;
   int capacity;
   pthread_mutex_t lock; // Lock to ensure mutual exclusion of buffer access 
   pthread_cond_t not_empty; // Condition variable to wait for requests
+  pthread_cond_t not_full; // Condition variable to wait for space in the buffer
 } request_buffer_t;
 
-// Function to initialize the request buffer
 request_buffer_t buffer;
+
+// Function to initialize the request buffer
 void init_request_buffer(int capacity) {
   printf("DEBUG: Initializing buffer with capacity: %d\n", capacity);
   buffer.requests = malloc(sizeof(request_t) * capacity);
+  buffer.head = 0;
+  buffer.tail = 0;
   buffer.size = 0;
   buffer.capacity = capacity;
   pthread_mutex_init(&buffer.lock, NULL);
   pthread_cond_init(&buffer.not_empty, NULL); 
+  pthread_cond_init(&buffer.not_full, NULL);
 }
 
 // Function to add item to the request buffer
 int add_to_buffer(request_buffer_t *buffer, request_t request) {
   pthread_mutex_lock(&buffer->lock); // Lock the buffer for mutual exclusion
-  if (buffer->size >= buffer->capacity ) { // Check to see if buffer is full
-    pthread_mutex_unlock(&buffer->lock); // Unlock
+  while (buffer->size >= buffer->capacity ) { // Check to see if buffer is full
+    pthread_cond_wait(&buffer->not_full, &buffer->lock); // Wait for space in buffer
     return -1; // TODO: Determine whether we just kill it or keep waiting until buffer has room... unsure...
   }
-  buffer->requests[buffer->size++] = request; // Add request to the buffer
+  buffer->requests[buffer->tail] = request; // Add request to the buffer
+  buffer->tail = (buffer->tail + 1) % buffer->capacity; // Update tail value
+  buffer->size++;
   pthread_cond_signal(&buffer->not_empty); // Indicate there's a request to be processed
   pthread_mutex_unlock(&buffer->lock); // Unlock
   return 0;
@@ -59,7 +68,10 @@ int remove_from_buffer(request_buffer_t *buffer, request_t *request) {
   while (buffer->size == 0) {
     pthread_cond_wait(&buffer->not_empty, &buffer->lock); // Wait for requests
   }
-  *request = buffer->requests[--buffer->size]; // Remove request from the buffer
+  *request = buffer->requests[buffer->head]; // Remove request from the buffer
+  buffer->head = (buffer->head + 1) % buffer->capacity; // Update head value
+  buffer->size--; // Decrease buffer size
+  pthread_cond_signal(&buffer->not_full); // Space open in buffer
   pthread_mutex_unlock(&buffer->lock); // Unlock
   return 0;
 }
@@ -162,6 +174,8 @@ void request_serve_static(int fd, char *filename, int filesize) {
     int srcfd;
     char *srcp, filetype[MAXBUF], buf[MAXBUF];
     
+    printf("DEBUG: Received Request\n");
+
     request_get_filetype(filename, filetype);
     srcfd = open_or_die(filename, O_RDONLY, 0);
     
@@ -178,6 +192,8 @@ void request_serve_static(int fd, char *filename, int filesize) {
 	    "Content-Type: %s\r\n\r\n", 
 	    filesize, filetype);
        
+    printf("DEBUG: Message: %d\n", buf);
+
     write_or_die(fd, buf, strlen(buf));
     
     //  Writes out to the client socket the memory-mapped file 
@@ -185,70 +201,83 @@ void request_serve_static(int fd, char *filename, int filesize) {
     munmap_or_die(srcp, filesize);
 }
 
-//
-// Code to process requests in the buffer based on the three scheduling policies. Decided to break out into separate functions to make things cleaner.
-//
 
-// FIFO (First In, First Out) - Process requests in the order that they come in
-void process_fifo(request_buffer_t *buffer) {
-  request_t req;
-  while (buffer->size > 0) {
-      remove_from_buffer(buffer, &req); // Grab the first request from the buffer and dequeue it
-      request_serve_static(req.fd, req.filename, req.filesize); // Handle request
-  }
-}
-
-// SFF/SJF - Shortest File First / Shortest Job First
-void process_sff(request_buffer_t *buffer) {
-  request_t req;
-  while (buffer->size > 0) { // Loop until buffer is empty
-      int min_found = 0; // Make a variable to set to the smallest found request
-      for (int i = 1; i < buffer->size; i++) { // Loop through all items in the buffer
-        if (buffer->requests[i].filesize < buffer->requests[min_found].filesize) // See if looped-through request is smaller than currently saved one
-          min_found = i; // Set the smallest found request to the current one
-      }
-  
-  req = buffer->requests[min_found]; // Grab the request that was the smallest
-  for (int i = min_found; i < buffer->size - 1; i++) { 
-    buffer->requests[i] = buffer->requests[i + 1]; // Shift all other requests
-  }
-  buffer->size--; // Shrink buffer
-  request_serve_static(req.fd, req.filename, req.filesize); // Handle request
-}
-}
-
-  // Random - Process requests / files in a random order
-void process_random(request_buffer_t *buffer) {
-  request_t req;
-  while (buffer->size > 0) { // Loop until buffer is empty
-    int random_num = rand() % buffer->size; // Grab the index of a random request
-    
-  req = buffer->requests[random_num]; // Grab the request
-  for (int i = random_num; i < buffer->size - 1; i++) {
-    buffer->requests[i] = buffer->requests[i + 1]; // Shift all other requests
-  }
-  buffer->size--; // Shrink buffer
-
-  request_serve_static(req.fd, req.filename, req.filesize); // Handle request
-  }
-}
 
 //
 // Fetches the requests from the buffer and handles them (thread logic)
 //
 void* thread_request_serve_static(void* arg) {
-	// DONE: write code to actualy respond to HTTP requests
+  pthread_detach(pthread_self());
 
-  // 'scheduling_algo' is passed in from request.h - 0 - FIFO, 1 - SFF, 2 - RANDOM
-  // Send the buffer through to the correct scheduling algorithm
+  printf("DEBUG: Starting to serve requests\n");
 
-  if(scheduling_algo == 0) {
-    process_fifo(&buffer);
-  } else if (scheduling_algo == 1) {
-    process_sff(&buffer);
-  } else if (scheduling_algo == 2) {
-    process_random(&buffer);
+  while (1) {
+      request_t req;
+      printf("DEBUG: Still checking for requests...\n");
+
+      pthread_mutex_lock(&buffer.lock);
+      // Wait if the buffer is empty
+      while (buffer.size == 0) {
+          pthread_cond_wait(&buffer.not_empty, &buffer.lock);
+      }
+
+      // FIFO (FIRST IN, FIRST OUT)
+      if (scheduling_algo == 0) {
+          printf("DEBUG: FIFO Processing Begins\n");
+          req = buffer.requests[buffer.head];
+          buffer.head = (buffer.head + 1) % buffer.capacity;
+          buffer.size--;
+          pthread_cond_signal(&buffer.not_full);
+          pthread_mutex_unlock(&buffer.lock);
+          request_serve_static(req.fd, req.filename, req.filesize);
+
+      // SFF (SHORTEST FILE FIRST)
+      } else if (scheduling_algo == 1) {
+            printf("DEBUG: SJF Processing Begins\n");
+          if (buffer.size > 0) {
+              int shortest_index = 0;
+              for (int i = 1; i < buffer.size; i++) {
+                  if (buffer.requests[i].filesize < buffer.requests[shortest_index].filesize) {
+                      shortest_index = i;
+                  }
+              }
+              req = buffer.requests[shortest_index];
+              // Remove the selected request by shifting others
+              for (int i = shortest_index; i < buffer.size - 1; i++) {
+                  buffer.requests[i] = buffer.requests[i + 1];
+              }
+              buffer.size--;
+              buffer.tail = (buffer.tail - 1 + buffer.capacity) % buffer.capacity; // Adjust tail
+              pthread_cond_signal(&buffer.not_full);
+              pthread_mutex_unlock(&buffer.lock);
+              request_serve_static(req.fd, req.filename, req.filesize);
+          } else {
+              pthread_mutex_unlock(&buffer.lock);
+              continue; // Buffer was empty after waiting
+          }
+
+      // RANDOM
+      } else if (scheduling_algo == 2) {
+          printf("DEBUG: Random Processing Begins\n");
+          if (buffer.size > 0) {
+              int random_index = rand() % buffer.size;
+              req = buffer.requests[random_index];
+              // Remove the selected request by shifting others
+              for (int i = random_index; i < buffer.size - 1; i++) {
+                  buffer.requests[i] = buffer.requests[i + 1];
+              }
+              buffer.size--;
+              buffer.tail = (buffer.tail - 1 + buffer.capacity) % buffer.capacity; // Adjust tail
+              pthread_cond_signal(&buffer.not_full);
+              pthread_mutex_unlock(&buffer.lock);
+              request_serve_static(req.fd, req.filename, req.filesize);
+          } else {
+              pthread_mutex_unlock(&buffer.lock);
+              continue; // Buffer was empty after waiting
+          }
+      }
   }
+  return NULL;
 }
 
 
@@ -264,10 +293,12 @@ void request_handle(int fd) {
 	// get the request type, file path and HTTP version
     readline_or_die(fd, buf, MAXBUF);
     sscanf(buf, "%s %s %s", method, uri, version);
+    printf("DEBUG: Request Received\n");
     printf("method:%s uri:%s version:%s\n", method, uri, version);
 
 	// verify if the request type is GET or not
     if (strcasecmp(method, "GET")) {
+    printf("DEBUG: GET Request Not Implemented\n");
 		request_error(fd, method, "501", "Not Implemented", "server does not implement this method");
 		return;
     }
@@ -278,6 +309,7 @@ void request_handle(int fd) {
     
 	// get some data regarding the requested file, also check if requested file is present on server
     if (stat(filename, &sbuf) < 0) {
+    printf("DEBUG: File not found\n");
 		request_error(fd, filename, "404", "Not found", "server could not find this file");
 		return;
     }
@@ -292,6 +324,7 @@ void request_handle(int fd) {
 		// DONE: write code to add HTTP requests in the buffer based on the scheduling policy
 
 
+    printf("DEBUG: Adding request to buffer!\n");
     request_t req = {fd, filename, sbuf.st_size}; // Create the request
     add_to_buffer(&buffer, req); // Add the request to the buffer
 
