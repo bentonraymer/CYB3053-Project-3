@@ -19,6 +19,7 @@ typedef struct request {
   int fd;
   char *filename;
   int filesize;
+  struct timespec arrival_time;
 } request_t;
 
 // Struct for request buffer
@@ -232,6 +233,21 @@ void* thread_request_serve_static(void* arg) {
           idx_in_queue = 0;
       // SFF (Shortest File First)
       } else if (scheduling_algo == 1){
+        
+
+        // Help prevent starvation by keeping track of arrival time & auto-scheduling if it's been over 5 seconds of waiting
+        struct timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+
+        for (int i = 0; i < buffer.size; i++) {
+          int idx = (buffer.head + i) % buffer.capacity;
+          double age = (now.tv_sec - buffer.requests[idx].arrival_time.tv_sec) + (now.tv_nsec - buffer.requests[idx].arrival_time.tv_nsec) / 1e9;
+          if (age > 5) {
+            idx_in_queue = i;
+            goto dequeue;
+          }
+        }
+
         idx_in_queue = 0;
         int smallest_found = buffer.requests[buffer.head].filesize;
         // Loop through the buffer to find smallest file
@@ -248,6 +264,7 @@ void* thread_request_serve_static(void* arg) {
       }
 
       // Retrieve the proper request
+    dequeue:
       int real_idx = (buffer.head + idx_in_queue) % buffer.capacity;
       req = buffer.requests[real_idx];
 
