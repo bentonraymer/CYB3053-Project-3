@@ -224,45 +224,47 @@ void* thread_request_serve_static(void* arg) {
       while (buffer.size == 0) {
           pthread_cond_wait(&buffer.not_empty, &buffer.lock);
       }
-      
+
+      int idx_in_queue = 0;
       // Handle according to scheduling algorithm
       // FIFO (First In, First Out)
       if (scheduling_algo == 0) {
-          req = buffer.requests[buffer.head];
-          buffer.head = (buffer.head + 1) % buffer.capacity;
-      } else {
-        int queue_index = 0;
-        // SFF (Shortest File First)
-        int idx_in_queue = 0;
-        if (scheduling_algo == 1) {
-          int smallest_found = buffer.requests[buffer.head].filesize;
-          // Loop through the buffer to find smallest file
-          for (int i = 1; i < buffer.size; i++) {
-            int idx = (buffer.head + 1) % buffer.capacity;
-            if (buffer.requests[idx].filesize < smallest_found) {
-              smallest_found = buffer.requests[idx].filesize;
-              idx_in_queue = i;
+          idx_in_queue = 0;
+      // SFF (Shortest File First)
+      } else if (scheduling_algo == 1){
+        idx_in_queue = 0;
+        int smallest_found = buffer.requests[buffer.head].filesize;
+        // Loop through the buffer to find smallest file
+        for (int i = 1; i < buffer.size; i++) {
+          int idx = (buffer.head + 1) % buffer.capacity;
+          if (buffer.requests[idx].filesize < smallest_found) {
+            smallest_found = buffer.requests[idx].filesize;
+            idx_in_queue = i;
             }
           }
-        // RANDOM
-        } else {
-          idx_in_queue = rand() % buffer.size;
-        }
+      // RANDOM
+      } else {
+        idx_in_queue = rand() % buffer.size;
+      }
 
-        // Retrieve the proper request
-        int real_idx = (buffer.head + idx_in_queue) % buffer.capacity;
-        req = buffer.requests[real_idx];
+      // Retrieve the proper request
+      int real_idx = (buffer.head + idx_in_queue) % buffer.capacity;
+      req = buffer.requests[real_idx];
 
-        // Shift buffer to remove request
+      // Shift buffer to remove request
+      if (idx_in_queue == 0) {
+        buffer.head = (buffer.head + 1) % buffer.capacity;
+      } else {
         for (int i = idx_in_queue; i < buffer.size - 1; i++) {
           int from = (buffer.head + i + 1) % buffer.capacity;
           int to = (buffer.head + i) % buffer.capacity;
           buffer.requests[to] = buffer.requests[from];
         }
+        buffer.tail = (buffer.tail - 1 + buffer.capacity) % buffer.capacity;
       }
+
     // Update size and tail, signal, and unlock
     buffer.size--;
-    buffer.tail = (buffer.tail - 1 + buffer.capacity) % buffer.capacity;
     pthread_cond_signal(&buffer.not_full);
     pthread_mutex_unlock(&buffer.lock);
 
