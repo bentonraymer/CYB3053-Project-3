@@ -289,6 +289,7 @@ void request_handle(int fd) {
 	// get the request type, file path and HTTP version
     readline_or_die(fd, buf, MAXBUF);
     sscanf(buf, "%s %s %s", method, uri, version);
+
     printf("DEBUG: Request Received\n");
     printf("method:%s uri:%s version:%s\n", method, uri, version);
 
@@ -300,6 +301,12 @@ void request_handle(int fd) {
     }
     request_read_headers(fd);
     
+  // Protect against directory traversal attacks
+  if (strstr(uri, "..")) {
+    request_error(fd, uri, "403", "Forbidden", "directory traversal attack detected");
+    return;
+  }
+
 	// check requested content type (static/dynamic)
     is_static = request_parse_uri(uri, filename, cgiargs);
     
