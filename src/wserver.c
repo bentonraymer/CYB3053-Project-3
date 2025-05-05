@@ -48,17 +48,22 @@ int main(int argc, char *argv[]) {
 	printf("DEBUG: Checkpoint 3\n");
     // browse to webserver's root directory
     chdir_or_die(root_dir);
-	printf("DEBUG: Checkpoint 4\n");
-	// create the thread pool
-	pthread_t thread_pool[num_threads];
-	for(int i=0; i<num_threads; i++)
-    	pthread_create(&thread_pool[i], NULL, thread_request_serve_static, NULL);
+
+	
 	printf("DEBUG: Checkpoint 5\n");
 	int buffer_size = 0;	// initial buffer size
 	
 	// initialize the request buffer
 	printf("DEBUG: Buffer Size: %d\n", buffer_max_size);
 	init_request_buffer(buffer_max_size);
+
+
+	printf("DEBUG: Checkpoint 4\n");
+	// create the thread pool
+	pthread_t thread_pool[num_threads];
+	for(int i=0; i<num_threads; i++)
+    	pthread_create(&thread_pool[i], NULL, thread_request_serve_static, NULL);
+
 
     // open the socket connection
     int listen_fd = open_listen_fd_or_die(port);

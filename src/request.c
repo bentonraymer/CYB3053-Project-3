@@ -53,7 +53,6 @@ int add_to_buffer(request_buffer_t *buffer, request_t request) {
   pthread_mutex_lock(&buffer->lock); // Lock the buffer for mutual exclusion
   while (buffer->size >= buffer->capacity ) { // Check to see if buffer is full
     pthread_cond_wait(&buffer->not_full, &buffer->lock); // Wait for space in buffer
-    return -1; // TODO: Determine whether we just kill it or keep waiting until buffer has room... unsure...
   }
   buffer->requests[buffer->tail] = request; // Add request to the buffer
   buffer->tail = (buffer->tail + 1) % buffer->capacity; // Update tail value
@@ -65,15 +64,20 @@ int add_to_buffer(request_buffer_t *buffer, request_t request) {
 }
 
 int remove_from_buffer(request_buffer_t *buffer, request_t *request) {
+  printf("DEBUG: Removing a request from buffer\n");
   pthread_mutex_lock(&buffer->lock); // Lock the buffer
   while (buffer->size == 0) {
     pthread_cond_wait(&buffer->not_empty, &buffer->lock); // Wait for requests
+    printf("DEBUG: Buffer is full\n");
   }
   *request = buffer->requests[buffer->head]; // Remove request from the buffer
+  printf("DEBUG: Request removed\n");
   buffer->head = (buffer->head + 1) % buffer->capacity; // Update head value
   buffer->size--; // Decrease buffer size
+  printf("DEBUG: Updated head value and decreased buffer size\n");
   pthread_cond_signal(&buffer->not_full); // Space open in buffer
   pthread_mutex_unlock(&buffer->lock); // Unlock
+  printf("DEBUG: All done removing!\n");
   return 0;
 }
 
@@ -208,80 +212,68 @@ void request_serve_static(int fd, char *filename, int filesize) {
 // Fetches the requests from the buffer and handles them (thread logic)
 //
 void* thread_request_serve_static(void* arg) {
+  request_t req;
 
-  printf("DEBUG: Starting to serve requests\n");
+  printf("DEBUG: Worker thread started (algorithm=%d)\n", scheduling_algo);
 
   while (1) {
       request_t req;
-      printf("DEBUG: Still checking for requests...\n");
 
+      // Wait for request in the buffer
       pthread_mutex_lock(&buffer.lock);
-      // Wait if the buffer is empty
       while (buffer.size == 0) {
           pthread_cond_wait(&buffer.not_empty, &buffer.lock);
       }
-
-      // FIFO (FIRST IN, FIRST OUT)
+      
+      // Handle according to scheduling algorithm
+      // FIFO (First In, First Out)
       if (scheduling_algo == 0) {
-          printf("DEBUG: FIFO Processing Begins\n");
-          printf("DEBUG: Current Buffer Size: %d\n", buffer.size);
           req = buffer.requests[buffer.head];
           buffer.head = (buffer.head + 1) % buffer.capacity;
-          buffer.size--;
-          pthread_cond_signal(&buffer.not_full);
-          pthread_mutex_unlock(&buffer.lock);
-          request_serve_static(req.fd, req.filename, req.filesize);
-
-      // SFF (SHORTEST FILE FIRST)
-      } else if (scheduling_algo == 1) {
-            printf("DEBUG: SJF Processing Begins\n");
-            printf("DEBUG: Current Buffer Size: %d\n", buffer.size);
-          if (buffer.size > 0) {
-              int shortest_index = 0;
-              for (int i = 1; i < buffer.size; i++) {
-                  if (buffer.requests[i].filesize < buffer.requests[shortest_index].filesize) {
-                      shortest_index = i;
-                  }
-              }
-              req = buffer.requests[shortest_index];
-              // Remove the selected request by shifting others
-              for (int i = shortest_index; i < buffer.size - 1; i++) {
-                  buffer.requests[i] = buffer.requests[i + 1];
-              }
-              buffer.size--;
-              buffer.tail = (buffer.tail - 1 + buffer.capacity) % buffer.capacity; // Adjust tail
-              pthread_cond_signal(&buffer.not_full);
-              pthread_mutex_unlock(&buffer.lock);
-              request_serve_static(req.fd, req.filename, req.filesize);
-          } else {
-              pthread_mutex_unlock(&buffer.lock);
-              continue; // Buffer was empty after waiting
+      } else {
+        int queue_index = 0;
+        // SFF (Shortest File First)
+        int idx_in_queue = 0;
+        if (scheduling_algo == 1) {
+          int smallest_found = buffer.requests[buffer.head].filesize;
+          // Loop through the buffer to find smallest file
+          for (int i = 1; i < buffer.size; i++) {
+            int idx = (buffer.head + 1) % buffer.capacity;
+            if (buffer.requests[idx].filesize < smallest_found) {
+              smallest_found = buffer.requests[idx].filesize;
+              idx_in_queue = i;
+            }
           }
+        // RANDOM
+        } else {
+          idx_in_queue = rand() % buffer.size;
+        }
 
-      // RANDOM
-      } else if (scheduling_algo == 2) {
-          printf("DEBUG: Random Processing Begins\n");
-          if (buffer.size > 0) {
-              int random_index = rand() % buffer.size;
-              req = buffer.requests[random_index];
-              // Remove the selected request by shifting others
-              for (int i = random_index; i < buffer.size - 1; i++) {
-                  buffer.requests[i] = buffer.requests[i + 1];
-              }
-              buffer.size--;
-              buffer.tail = (buffer.tail - 1 + buffer.capacity) % buffer.capacity; // Adjust tail
-              pthread_cond_signal(&buffer.not_full);
-              pthread_mutex_unlock(&buffer.lock);
-              request_serve_static(req.fd, req.filename, req.filesize);
-          } else {
-              pthread_mutex_unlock(&buffer.lock);
-              continue; // Buffer was empty after waiting
-          }
+        // Retrieve the proper request
+        int real_idx = (buffer.head + idx_in_queue) % buffer.capacity;
+        req = buffer.requests[real_idx];
+
+        // Shift buffer to remove request
+        for (int i = idx_in_queue; i < buffer.size - 1; i++) {
+          int from = (buffer.head + i + 1) % buffer.capacity;
+          int to = (buffer.head + i) % buffer.capacity;
+          buffer.requests[to] = buffer.requests[from];
+        }
       }
-  }
-  return NULL;
-}
+    // Update size and tail, signal, and unlock
+    buffer.size--;
+    buffer.tail = (buffer.tail - 1 + buffer.capacity) % buffer.capacity;
+    pthread_cond_signal(&buffer.not_full);
+    pthread_mutex_unlock(&buffer.lock);
 
+
+    // Serve request
+    printf("DEBUG: Serving %s fd=%d size=%d\n",req.filename, req.fd, req.filesize);
+    request_serve_static(req.fd, req.filename, req.filesize);
+    close(req.fd);
+    free(req.filename);
+  }
+}
 
 //
 // Initial handling of the request
@@ -300,9 +292,9 @@ void request_handle(int fd) {
 
 	// verify if the request type is GET or not
     if (strcasecmp(method, "GET")) {
-    printf("DEBUG: GET Request Not Implemented\n");
-		request_error(fd, method, "501", "Not Implemented", "server does not implement this method");
-		return;
+      printf("DEBUG: GET Request Not Implemented\n");
+      request_error(fd, method, "501", "Not Implemented", "server does not implement this method");
+      return;
     }
     request_read_headers(fd);
     
@@ -311,23 +303,26 @@ void request_handle(int fd) {
     
 	// get some data regarding the requested file, also check if requested file is present on server
     if (stat(filename, &sbuf) < 0) {
-    printf("DEBUG: File not found\n");
-		request_error(fd, filename, "404", "Not found", "server could not find this file");
-		return;
+      printf("DEBUG: File not found\n");
+      request_error(fd, filename, "404", "Not found", "server could not find this file");
+      return;
     }
     
 	// verify if requested content is static
     if (is_static) {
-		if (!(S_ISREG(sbuf.st_mode)) || !(S_IRUSR & sbuf.st_mode)) {
-			request_error(fd, filename, "403", "Forbidden", "server could not read this file");
-			return;
-		}
+      if (!(S_ISREG(sbuf.st_mode)) || !(S_IRUSR & sbuf.st_mode)) {
+        request_error(fd, filename, "403", "Forbidden", "server could not read this file");
+        return;
+      }
 		
 		// DONE: write code to add HTTP requests in the buffer based on the scheduling policy
 
 
     printf("DEBUG: Adding request to buffer!\n");
-    request_t req = {fd, filename, sbuf.st_size}; // Create the request
+    request_t req;
+    req.fd = fd;
+    req.filesize = sbuf.st_size;
+    req.filename = strdup(filename);
     add_to_buffer(&buffer, req); // Add the request to the buffer
 
 
