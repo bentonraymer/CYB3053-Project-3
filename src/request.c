@@ -252,7 +252,7 @@ void* thread_request_serve_static(void* arg) {
         int smallest_found = buffer.requests[buffer.head].filesize;
         // Loop through the buffer to find smallest file
         for (int i = 1; i < buffer.size; i++) {
-          int idx = (buffer.head + 1) % buffer.capacity;
+          int idx = (buffer.head + i) % buffer.capacity;
           if (buffer.requests[idx].filesize < smallest_found) {
             smallest_found = buffer.requests[idx].filesize;
             idx_in_queue = i;
@@ -319,10 +319,18 @@ void request_handle(int fd) {
     request_read_headers(fd);
     
   // Protect against directory traversal attacks
-  if (strstr(uri, "..")) {
-    request_error(fd, uri, "403", "Forbidden", "directory traversal attack detected");
-    return;
+  static const char *blacklisted_strings[] = {
+    "..", "../". "/..", "%2e%2e", "%00", NULL};
   }
+
+  for (int i = 0; blacklist[i] != NULL; i++) {
+    if (strstr(uri, "..")) {
+      request_error(fd, uri, "403", "Forbidden", "directory traversal attack detected");
+      return;
+    }
+  }
+
+  
 
 	// check requested content type (static/dynamic)
     is_static = request_parse_uri(uri, filename, cgiargs);
