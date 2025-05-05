@@ -13,13 +13,13 @@ char default_root[] = ".";
 // ./wserver [-d basedir] [-p port] [-t threads] [-b buffersize] [-s schedalg (0 - FIFO, 1 - SFF, 2 - Random)]
 // 
 int main(int argc, char *argv[]) {
-	printf("DEBUG: Checkpoint 1\n");
+	// printf("DEBUG: Checkpoint 1\n");
     int c;
     char *root_dir = default_root;
     int port = 10000;
     
 	int buffer_max_size = DEFAULT_BUFFER_SIZE;
-    printf("DEBUG: Checkpoint 2\n");
+    // printf("DEBUG: Checkpoint 2\n");
 	// fetch (and set) values from command line arguments
     while ((c = getopt(argc, argv, "hd:p:t:b:s:")) != -1)
 		switch (c) {
@@ -45,20 +45,20 @@ int main(int argc, char *argv[]) {
 				fprintf(stderr, "usage: wserver [-d basedir] [-p port] [-t threads] [-b buffersize] [-s schedalg (0 - FIFO, 1 - SFF, 2 - Random)]\n");
 				exit(1);
 		}
-	printf("DEBUG: Checkpoint 3\n");
+	// printf("DEBUG: Checkpoint 3\n");
     // browse to webserver's root directory
     chdir_or_die(root_dir);
 
-	
-	printf("DEBUG: Checkpoint 5\n");
+
+	// printf("DEBUG: Checkpoint 5\n");
 	int buffer_size = 0;	// initial buffer size
 	
 	// initialize the request buffer
-	printf("DEBUG: Buffer Size: %d\n", buffer_max_size);
+	// printf("DEBUG: Buffer Size: %d\n", buffer_max_size);
 	init_request_buffer(buffer_max_size);
 
 
-	printf("DEBUG: Checkpoint 4\n");
+	// printf("DEBUG: Checkpoint 4\n");
 	// create the thread pool
 	pthread_t thread_pool[num_threads];
 	for(int i=0; i<num_threads; i++)

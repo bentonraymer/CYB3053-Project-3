@@ -38,7 +38,7 @@ request_buffer_t buffer;
 
 // Function to initialize the request buffer
 void init_request_buffer(int capacity) {
-  printf("DEBUG: Initializing buffer with capacity: %d\n", capacity);
+  // printf("DEBUG: Initializing buffer with capacity: %d\n", capacity);
   buffer.requests = malloc(sizeof(request_t) * capacity);
   buffer.head = 0;
   buffer.tail = 0;
@@ -60,25 +60,25 @@ int add_to_buffer(request_buffer_t *buffer, request_t request) {
   buffer->size++;
   pthread_cond_signal(&buffer->not_empty); // Indicate there's a request to be processed
   pthread_mutex_unlock(&buffer->lock); // Unlock
-  printf("DEBUG: Request added to buffer\n");
+  // printf("DEBUG: Request added to buffer\n");
   return 0;
 }
 
 int remove_from_buffer(request_buffer_t *buffer, request_t *request) {
-  printf("DEBUG: Removing a request from buffer\n");
+  // printf("DEBUG: Removing a request from buffer\n");
   pthread_mutex_lock(&buffer->lock); // Lock the buffer
   while (buffer->size == 0) {
     pthread_cond_wait(&buffer->not_empty, &buffer->lock); // Wait for requests
-    printf("DEBUG: Buffer is full\n");
+    // printf("DEBUG: Buffer is full\n");
   }
   *request = buffer->requests[buffer->head]; // Remove request from the buffer
-  printf("DEBUG: Request removed\n");
+  // printf("DEBUG: Request removed\n");
   buffer->head = (buffer->head + 1) % buffer->capacity; // Update head value
   buffer->size--; // Decrease buffer size
-  printf("DEBUG: Updated head value and decreased buffer size\n");
+  // printf("DEBUG: Updated head value and decreased buffer size\n");
   pthread_cond_signal(&buffer->not_full); // Space open in buffer
   pthread_mutex_unlock(&buffer->lock); // Unlock
-  printf("DEBUG: All done removing!\n");
+  // printf("DEBUG: All done removing!\n");
   return 0;
 }
 
@@ -180,7 +180,7 @@ void request_serve_static(int fd, char *filename, int filesize) {
     int srcfd;
     char *srcp, filetype[MAXBUF], buf[MAXBUF];
     
-    printf("DEBUG: Received Request\n");
+    // printf("DEBUG: Received Request\n");
 
     request_get_filetype(filename, filetype);
     srcfd = open_or_die(filename, O_RDONLY, 0);
@@ -198,7 +198,7 @@ void request_serve_static(int fd, char *filename, int filesize) {
 	    "Content-Type: %s\r\n\r\n", 
 	    filesize, filetype);
        
-    printf("DEBUG: Message: %d\n", buf);
+    // printf("DEBUG: Message: %d\n", buf);
 
     write_or_die(fd, buf, strlen(buf));
     
@@ -215,7 +215,7 @@ void request_serve_static(int fd, char *filename, int filesize) {
 void* thread_request_serve_static(void* arg) {
   request_t req;
 
-  printf("DEBUG: Worker thread started (algorithm=%d)\n", scheduling_algo);
+  // printf("DEBUG: Worker thread started (algorithm=%d)\n", scheduling_algo);
 
   while (1) {
       request_t req;
@@ -287,7 +287,7 @@ void* thread_request_serve_static(void* arg) {
 
 
     // Serve request
-    printf("DEBUG: Serving %s fd=%d size=%d\n",req.filename, req.fd, req.filesize);
+    // printf("DEBUG: Serving %s fd=%d size=%d\n",req.filename, req.fd, req.filesize);
     request_serve_static(req.fd, req.filename, req.filesize);
     close(req.fd);
     free(req.filename);
@@ -307,12 +307,12 @@ void request_handle(int fd) {
     readline_or_die(fd, buf, MAXBUF);
     sscanf(buf, "%s %s %s", method, uri, version);
 
-    printf("DEBUG: Request Received\n");
+    // printf("DEBUG: Request Received\n");
     printf("method:%s uri:%s version:%s\n", method, uri, version);
 
 	// verify if the request type is GET or not
     if (strcasecmp(method, "GET")) {
-      printf("DEBUG: GET Request Not Implemented\n");
+      // printf("DEBUG: GET Request Not Implemented\n");
       request_error(fd, method, "501", "Not Implemented", "server does not implement this method");
       return;
     }
@@ -320,10 +320,9 @@ void request_handle(int fd) {
     
   // Protect against directory traversal attacks
   static const char *blacklisted_strings[] = {
-    "..", "../". "/..", "%2e%2e", "%00", NULL};
-  }
+    "..", "../", "/..", "%2e%2e", "%00", NULL};
 
-  for (int i = 0; blacklist[i] != NULL; i++) {
+  for (int i = 0; blacklisted_strings[i] != NULL; i++) {
     if (strstr(uri, "..")) {
       request_error(fd, uri, "403", "Forbidden", "directory traversal attack detected");
       return;
@@ -337,7 +336,7 @@ void request_handle(int fd) {
     
 	// get some data regarding the requested file, also check if requested file is present on server
     if (stat(filename, &sbuf) < 0) {
-      printf("DEBUG: File not found\n");
+      // printf("DEBUG: File not found\n");
       request_error(fd, filename, "404", "Not found", "server could not find this file");
       return;
     }
@@ -352,7 +351,7 @@ void request_handle(int fd) {
 		// DONE: write code to add HTTP requests in the buffer based on the scheduling policy
 
 
-    printf("DEBUG: Adding request to buffer!\n");
+    // printf("DEBUG: Adding request to buffer!\n");
     request_t req;
     req.fd = fd;
     req.filesize = sbuf.st_size;
